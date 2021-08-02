@@ -1,10 +1,14 @@
-package hrubyj;
+package cz.zcu.kiv.utils;
 
 import java.io.File;
 import java.io.FilenameFilter;
 
+/**
+ * Filters files according to their extension.
+ */
 public class ExtensionFilenameFilter implements FilenameFilter {
 
+    /** file extension */
     private final String extension;
 
     public ExtensionFilenameFilter(String extension) {

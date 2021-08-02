@@ -1,32 +1,67 @@
-package hrubyj;
+package cz.zcu.kiv.utils;
 
 import com.verifa.jacc.ccu.ApiCmpStateResult;
 import com.verifa.jacc.cmp.JComparator;
 import com.verifa.jacc.javatypes.*;
 import com.verifa.jacc.typescmp.CmpResultNode;
-import cz.zcu.kiv.offscreen.api.*;
 import com.verifa.jacc.ccu.ApiInterCompatibilityResult;
+import cz.zcu.kiv.offscreen.api.*;
 import org.apache.commons.lang3.ArrayUtils;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.*;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.*;
 
+/**
+ * Generates JSON file for IMiGEr tool.
+ */
 public class JSONGenerator {
 
+    /** graph structure */
     private Graph graph;
+    /** level of depth */
     private int level;
+    /** incompatibility info in JSON format */
     private String compInfoJSON;
+    /** inner incompatibility info in JSON format */
     private String compInfoInnerJSON;
+    /** incompatibility info in JSON format - for NOT FOUND */
     private String compInfoJSONNF;
+    /** origins */
     private Set<String> origins;
+    /** JaCC messages */
     private Properties jaccMessages;
+    /** directory for JSON save */
+    private Path jsonDirectory;
+    /** incompatibility tooltip */
+    private String compatibilityTooltip = "";
 
     private static final String NOT_FOUND = "NOT_FOUND";
 
-    public void generateJSON(ApiInterCompatibilityResult comparisonResult, String appFiles, String libFiles, String jsonName) throws Exception {
+    /**
+     * Constructor
+     *
+     * @throws IOException
+     */
+    public JSONGenerator() throws IOException {
+        this.jsonDirectory = Files.createTempDirectory("json");
+    }
+
+    /**
+     * Generates JSON graph.
+     *
+     * @param comparisonResult analysis result
+     * @param appFiles path to app files
+     * @param libFiles path to lib files
+     * @param jsonName future JSON filename
+     * @return JSON file
+     * @throws IOException
+     */
+    public File generateJSON(ApiInterCompatibilityResult comparisonResult, String appFiles, String libFiles, String jsonName) throws IOException {
         this.origins = comparisonResult.getOriginsImportingIncompatibilities();
         this.graph = new Graph();
         this.jaccMessages = new Properties();
@@ -44,23 +79,27 @@ public class JSONGenerator {
         try {
             System.out.println("Converting graph to JSON!");
             jsonGraph = new JSONObject(this.graph);
+            jsonGraph.getJSONArray("attributeTypes").getJSONObject(0).put("dataType", "string");
         } catch (Exception e) {
             jsonGraph = null;
             System.err.println("Error creating JSON! ");
             e.printStackTrace();
         }
 
-        File json = new File("json_files/" + jsonName + ".json");
+        File json = new File(jsonDirectory + File.separator + jsonName + ".json");
         if (jsonGraph != null) {
             try (BufferedWriter bufferedWriter = new BufferedWriter(new FileWriter(json))) {
                 bufferedWriter.write(jsonGraph.toString());
                 bufferedWriter.flush();
             }
         }
+        return json;
     }
 
     /**
-     * This method creates the vertices and adds them to the graph.
+     * Generates vertices of the graph.
+     *
+     * @param files project files
      */
     private void generateVertices(File[] files) {
         List<VertexArchetype> vertexArchetypes = new ArrayList<>();
@@ -83,11 +122,13 @@ public class JSONGenerator {
     }
 
     /**
-     * This method creates the edges and adds them to the graph.
+     * Generates edges of the graph.
+     *
+     * @param comparisonResult analysis result
      */
-    private void createEdges(ApiInterCompatibilityResult comparisonResult) throws Exception {
-        EdgeArchetype edgeArchetype = new EdgeArchetype("Incompatibility Cause", "");
-        AttributeType attributeType = new AttributeType("Incompatibility", AttributeDataType.STRING, "");
+    private void createEdges(ApiInterCompatibilityResult comparisonResult)  {
+        EdgeArchetype edgeArchetype = new EdgeArchetype("Incompatibility details", "");
+        AttributeType attributeType = new AttributeType("Cause", AttributeDataType.STRING, "");
         this.graph.setEdgeArchetypes(new ArrayList<>(Collections.singleton(edgeArchetype)));
         this.graph.setAttributeTypes(new ArrayList<>(Collections.singleton(attributeType)));
         SubedgeInfo subedgeInfo;
@@ -96,7 +137,6 @@ public class JSONGenerator {
         Edge edge;
         int id = 0;
 
-        // compatibility checking START
         try {
             this.compInfoJSON = "";
             this.compInfoInnerJSON = "";
@@ -155,19 +195,16 @@ public class JSONGenerator {
                 NFClasses.clear();
 
                 if (!firstOrigin.equals("")) {
-                    String[] attribute = {"Incompatibility",  getCompatibilityInfo(new JSONObject(this.compInfoJSON)) };
-                    subedgeInfo = new SubedgeInfo(id, 0,  new ArrayList<>(Collections.singleton(attribute)));
+
+                    subedgeInfo = new SubedgeInfo(id, 0,  getCompatibilityInfo(new JSONArray("[" + this.compInfoJSON + "]")));
                     edge = new Edge(id, getVertexId(firstOrigin), getVertexId(secondOrigin), "", new ArrayList<>(Collections.singleton(subedgeInfo)));
-                    System.out.println("Edge " + edge.getId() + " created: " + edge.getFrom() + " -> " + edge.getTo());
                     this.graph.getEdges().add(edge);
                     id++;
                 }
 
                 if (!firstOriginNF.equals("")) {
-                    String[] attribute = {"Incompatibility", getCompatibilityInfo(new JSONObject(this.compInfoJSONNF)) };
-                    subedgeInfo = new SubedgeInfo(id, 0,  new ArrayList<>(Collections.singleton(attribute)));
+                    subedgeInfo = new SubedgeInfo(id, 0, getCompatibilityInfo(new JSONArray("[" + this.compInfoJSONNF+ "]")));
                     edge = new Edge(id, getVertexId(secondOriginNF), getVertexId(firstOriginNF), "", new ArrayList<>(Collections.singleton(subedgeInfo)));
-                    System.out.println("Edge " + edge.getId() + " created: " + edge.getFrom() + " -> " + edge.getTo());
                     this.graph.getEdges().add(edge);
                     id++;
                 }
@@ -180,15 +217,19 @@ public class JSONGenerator {
                 this.compInfoJSONNF = "";
 
             }
-        } catch (Exception e) {
-            System.err.println("ERROR createEdges()");
-            System.err.println(e.toString());
-            throw new Exception(e);
+        } catch (IllegalStateException e) {
+            System.err.println("Error while creating edges!");
+            throw new IllegalStateException(e);
         }
         System.out.println("Creating edges done!");
     }
 
-
+    /**
+     * Returns vertex ID.
+     *
+     * @param file file
+     * @return ID
+     */
     private int getVertexId(String file) {
         for (Vertex vertex : this.graph.getVertices()) {
             if (file.contains(vertex.getName())) {
@@ -198,7 +239,14 @@ public class JSONGenerator {
         throw new IllegalStateException("Vertex " + file + " not found!");
     }
 
-
+    /**
+     * Finds incompatibility cause.
+     *
+     * @param children child nodes
+     * @param className class name
+     * @param jarName jar name
+     * @param corrStrategy strategy
+     */
     public void findCompatibilityCause(List<CmpResultNode> children, String className, String jarName, String corrStrategy) {
         for (CmpResultNode child : children) {
             Object o = child.getResult().getFirstObject();
@@ -241,9 +289,9 @@ public class JSONGenerator {
 
             } else {
                 if (o instanceof JMethod) {
-                    this.compInfoInnerJSON += "\", name: \"<span class='entity'>M</span> " + getCompleteMethodName(o);
+                    this.compInfoInnerJSON += "\", name: \"M " + getCompleteMethodName(o);
                 } else if (o instanceof JField) {
-                    this.compInfoInnerJSON += "\", name: \"<span class='entity'>F</span> " + getShortName2(o.toString());
+                    this.compInfoInnerJSON += "\", name: \"F " + getShortName2(o.toString());
 
                 } else if (o instanceof HasName) {
                     this.compInfoInnerJSON += "\", name: \"" + this.jaccMessages.getProperty(child.getContentCode()) + ": " + ((HasName) o).getName();
@@ -261,7 +309,6 @@ public class JSONGenerator {
                 }
                 this.level++;
                 this.compInfoInnerJSON += "[";
-                // tady se podivat na child.getResult()
                 this.findCompatibilityCause(child.getResult().getChildren(), className, jarName, strategy);
                 this.level--;
                 this.compInfoInnerJSON += "],";
@@ -273,27 +320,58 @@ public class JSONGenerator {
 
     }
 
+    /**
+     * Returns short name.
+     *
+     * @param longName long name
+     * @return short name
+     */
     private String getShortName(String longName) {
         return longName.substring(longName.lastIndexOf('.') + 1);
     }
 
+    /**
+     * Returns short name.
+     *
+     * @param longName long name
+     * @return short name
+     */
     private String getShortName2(String longName) {
         return longName.substring(longName.lastIndexOf(':') + 1);
     }
 
+    /**
+     * Returns complete method name.
+     *
+     * @param o object
+     * @return short name
+     */
     private String getCompleteMethodName(Object o) {
         String methodName = "";
-        methodName += getShortName(((JMethod) o).getReturnType().getName());
-        methodName += " " + ((JMethod) o).getName();
-        methodName += " (";
-        for (JType type : ((JMethod) o).getParameterTypes()) {
-            methodName += getShortName(type.getName()) + ", ";
+        try {
+            methodName += getShortName(((JMethod) o).getReturnType().getName());
+            methodName += " " + ((JMethod) o).getName();
+            methodName += " (";
+            for (JType type : ((JMethod) o).getParameterTypes()) {
+                methodName += getShortName(type.getName()) + ", ";
+            }
+            methodName = methodName.replaceAll(", $", "");
+            methodName += ")";
+        } catch (ClassCastException e) {
+            System.out.println("Object is not method!");
+            methodName = "";
         }
-        methodName = methodName.replaceAll(", $", "");
-        methodName += ")";
+
         return methodName;
     }
 
+    /**
+     * Returns incompatibility name.
+     *
+     * @param child child node
+     * @param corrStrategy strategy
+     * @return incompatibility name
+     */
     private String getIncompatibilityName(CmpResultNode child, String corrStrategy) {
         Object o = child.getResult().getFirstObject();
 
@@ -315,16 +393,16 @@ public class JSONGenerator {
                 ;
                 break;
             case "cmp.child.method":
-                incompName = "<span class='entity'>M</span> " + getCompleteMethodName(o);
+                incompName = "M " + getCompleteMethodName(o);
                 break;
             case "cmp.child.constructor":
-                incompName = "<span class='entity'>C</span> " + getCompleteMethodName(o);
+                incompName = "C " + getCompleteMethodName(o);
                 break;
             case "cmp.child.field":
-                incompName = "<span class='entity'>F</span> " + getCompleteMethodName(o);
+                incompName = "F " + getCompleteMethodName(o);
                 break;
             case "cmp.child.modifier":
-                incompName = "<span class='entity'>P</span> " + o.toString() + " -> " + corrStrategy;
+                incompName = "P " + o.toString() + " -> " + corrStrategy;
                 break;
             default:
                 incompName = "";
@@ -334,74 +412,62 @@ public class JSONGenerator {
         return incompName;
     }
 
-
-    String compatibilityTooltip = "";
-
     /**
-     * Return HTML for incompatibility tooltip
+     * Return incompatibility info for detail of edge.
      */
-    private String getCompatibilityInfo(JSONObject data) {
-
+    private List<String[]> getCompatibilityInfo(JSONArray data) {
+        List<String[]> incompatibilities = new ArrayList<>();
         compatibilityTooltip = "";
+
         for (int i = 0; i < data.length(); i++) {
-            String Class = data.getString("theClass");
-            compatibilityTooltip += "<li><strong>" + Class + "</strong><ul>";
-            JSONArray incomps = data.getJSONArray("incomps");
+            JSONObject problem = data.getJSONObject(i);
+            String Class = problem.getString("theClass");
+            compatibilityTooltip += "Class: " + Class + " -> ";
+            JSONArray incomps = problem.getJSONArray("incomps");
             for (int j = 0; j < incomps.length(); j++) {
                 JSONObject jsonObject = null;
                 try {
                     jsonObject = incomps.getJSONObject(j);
                 } catch (JSONException e) {
-                    System.out.println("Not JSON object!");
+                    //Not JSON object
                 }
                 if (jsonObject != null) {
                     parseCompatibilityInfo(jsonObject);
                 }
             }
-            compatibilityTooltip += "</ul></li>";
+            incompatibilities.add(new String[]{"Cause", compatibilityTooltip});
+            compatibilityTooltip = "";
         }
-        compatibilityTooltip += "";
-        return compatibilityTooltip;
+
+        return incompatibilities;
     }
 
     /**
-     * Traverses incompatibility JSON object and creates HTML nested list
+     * Traverses incompatibility JSON object and creates incompatibility info.
      */
     private void parseCompatibilityInfo(JSONObject data) {
         JSONObject desc = data.getJSONObject("desc");
         JSONArray subtree = data.getJSONArray("subtree");
 
         if(desc.getString("isIncompCause") == "true") {
-            compatibilityTooltip += "<li><strong class=\"incomp\">" + desc.getString("incompName") + "</strong>";
-            compatibilityTooltip += "<ul class=\"compatibility-list\">";
-
+            compatibilityTooltip += "Class = " + desc.getString("incompName") + " -> ";
             if (desc.getString("difference") != "DEL") {
-                compatibilityTooltip += "<li><span><img src=\"images/efp_qtip/provided.png\"> <span class=\"second\">" + desc.getString("objectNameSecond") + "</span></span></li>";
-                compatibilityTooltip += "<li><span><img src=\"images/efp_qtip/required.png\"> <span class=\"first\">" + desc.getString("objectNameFirst") + "</span></span></li>";
+                compatibilityTooltip += "Difference: ";
+                compatibilityTooltip += desc.getString("objectNameSecond") + " -> " +  desc.getString("objectNameFirst") + " ";
             }
-            compatibilityTooltip += "</ul>";
         } else {
             if (desc.getInt("level") > 0) {
-                compatibilityTooltip += "<li><strong>" + desc.getString("name") + "</strong>";
+                compatibilityTooltip +=  desc.getString("name") + " ";
             }
         }
 
         if (subtree.length() > 0) {
-            if (desc.getInt("level") > 0) {
-                compatibilityTooltip += "<ul class=\"compatibility-list\">";
-            }
             for (int i = 0; i < subtree.length(); i++) {
                 JSONObject sub = subtree.getJSONObject(i);
                 if (sub.getJSONArray("subtree").length() > 0 || sub.getJSONObject("desc").getString("isIncompCause").equals("true")) {
                     parseCompatibilityInfo(sub);
                 }
             }
-            if (desc.getInt("level") > 0) {
-                compatibilityTooltip += "</ul>";
-            }
-        }
-        if (desc.getInt("level") > 0) {
-            compatibilityTooltip += "</li>";
         }
     }
 

@@ -1,0 +1,226 @@
+body {
+    /*background-color: #F2F2F2;*/
+
+    /*!* Safari 4-5, Chrome 1-9 *!*/
+    /*background: -webkit-gradient(linear, 0% 0%, 0% 100%, from(#D8D8D8),*/
+    /*to(#F2F2F2) );*/
+    /*!* Safari 5.1, Chrome 10+ *!*/
+    /*background: -webkit-linear-gradient(top, #D8D8D8, #F2F2F2);*/
+    /*!* Firefox 3.6+ *!*/
+    /*background: -moz-linear-gradient(top, #D8D8D8, #F2F2F2);*/
+    /*!* IE 10 *!*/
+    /*background: -ms-linear-gradient(top, #D8D8D8, #F2F2F2);*/
+    /*!* Opera 11.10+ *!*/
+    /*background: -o-linear-gradient(top, #D8D8D8, #F2F2F2);*/
+
+    font-family: Tahoma, Geneva, sans-serif;
+}
+
+a {
+    font-size: 80%;
+}
+
+#main {
+    margin: auto;
+    width: 70%;
+    font-size: 85%;
+}
+
+#mainMenu div {
+    display: inline-block;
+    width: 48%;
+}
+
+.problemHolder {
+    background-color: #FFEAE8;
+    border: solid 1px #F22929;
+    margin: 10px;
+    padding-bottom: 10px;
+    border-radius: 5px;
+}
+
+.origin {
+    background-color: #FACFCA;
+    padding: 5px;
+    cursor: pointer;
+}
+
+.origin .name {
+    font-weight: bold;
+}
+
+.importers {
+    padding: 5px;
+    padding-left: 20px;
+    padding-bottom: 15px;
+}
+
+.importers .importingClass {
+    cursor: pointer;
+}
+
+.importers .importingMethods {
+    padding-left: 20px;
+    color: gray;
+    font-size: 80%;
+}
+
+.exporters {
+    padding-left: 60px;
+    border-bottom: dashed 1px #F22929;
+}
+
+.result .classification {
+    display: inline-block;
+    width: 120px;
+}
+
+.result .detailInfo {
+    display: inline-block;
+}
+
+.result .classOrigin {
+    font-weight: bold;
+}
+
+.result .detailInfo .code {
+}
+
+.result .detailInfo .problemClass {
+    color: grey;
+    font-size: 80%;
+}
+
+.result .diff {
+    font-weight: bold;
+}
+
+.result .className, .classOrigin {
+    display: inline-block;
+}
+
+.result .classification {
+    color: #F22929;
+}
+
+.result .classOrigin {
+}
+
+#overview {
+    margin-bottom: 30px;
+}
+
+.title {
+    font-weight: bold;
+}
+
+.result .fix .classification, .result .fix .detailInfo, .duplications .fix .detailInfo {
+    color: green;
+}
+
+.duplications {
+    padding : 5px;
+    padding-left: 20px;
+}
+
+#overview .fileList .fileName {
+    margin-left: 20px;
+}
+
+.fileList .ok {
+}
+
+.fileName .redundant {
+    color: grey;
+}
+
+.fileName .incompatible {
+    color: red;
+}
+
+.fileName .must_remove {
+    color: darkred;
+    font-weight: bold;
+}
+
+#overview .summary {
+    display: inline-block;
+    vertical-align: top;
+    width: 48%;
+}
+
+#overview .charts {
+    display: inline-block;
+}
+
+#overview .charts h1 {
+    font-size: 100%;
+    text-align: center;
+    margin-bottom: 10px;
+}
+
+#detailCharts {
+    height: 100px;
+    text-align: center;
+    padding-bottom: 50px;
+}
+
+#detailCharts h1 {
+    font-size: 100%;
+    text-align: center;
+    margin-bottom: 10px;
+}
+
+.legend {
+    margin-left: 10%;
+    margin-right: 10%;
+    font-style: italic;
+    font-size: 80%;
+}
+
+.charts span {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    margin-right: 5px;
+}
+
+.charts li {
+    list-style-type: none;
+    padding: 0;
+    margin: 0;
+}
+
+#logo {
+    padding-top: 30px;
+    padding-bottom: 10px;
+}
+
+#logo img {
+    width: 300px;
+}
+
+#content {
+}
+
+.reportTitle {
+    background-color: navy;
+    background: linear-gradient(right, navy, green);
+    background: -moz-linear-gradient(right, navy, green); /* For Firefox 3.6 to 15 */
+    background: -webkit-linear-gradient(right, navy, green); /* For Safari 5.1 to 6.0 */
+    background: -o-linear-gradient(right, navy, green); /* For Opera 11.1 to 12.0 */
+    background: -moz-linear-gradient(right, navy, green); /* For Firefox 3.6 to 15 */
+    color: white;
+    padding: 5px;
+    margin : 0 0 15px;
+    text-align: right;
+    font-size: 15px;
+    border-radius: 5px;
+}
+
+#content {
+    border-radius: 5px;
+    border: solid 1px green;
+    padding: 10px;
+    background-color: white;
+}

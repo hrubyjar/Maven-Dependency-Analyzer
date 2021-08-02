@@ -1,0 +1,14 @@
+incompatible;2
+redundant;3
+must remove;4
+compatible;1
+C1;5
+C2;4
+C3;3
+M1;2
+M2;1
+F1;1
+F2;2
+MOD;3
+M.M1;4
+F7;5
