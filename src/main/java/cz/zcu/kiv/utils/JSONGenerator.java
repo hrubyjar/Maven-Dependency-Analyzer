@@ -1,10 +1,13 @@
 package cz.zcu.kiv.utils;
 
+import com.mysql.cj.xdevapi.JsonArray;
 import com.verifa.jacc.ccu.ApiCmpStateResult;
 import com.verifa.jacc.cmp.JComparator;
 import com.verifa.jacc.javatypes.*;
+import com.verifa.jacc.typescmp.CmpResult;
 import com.verifa.jacc.typescmp.CmpResultNode;
 import com.verifa.jacc.ccu.ApiInterCompatibilityResult;
+import com.verifa.jacc.typescmp.CorrectionStrategy;
 import cz.zcu.kiv.offscreen.api.*;
 import org.apache.commons.lang3.ArrayUtils;
 import org.json.JSONArray;
@@ -25,20 +28,12 @@ public class JSONGenerator {
     private Graph graph;
     /** level of depth */
     private int level;
-    /** incompatibility info in JSON format */
-    private String compInfoJSON;
-    /** inner incompatibility info in JSON format */
-    private String compInfoInnerJSON;
-    /** incompatibility info in JSON format - for NOT FOUND */
-    private String compInfoJSONNF;
     /** origins */
     private Set<String> origins;
     /** JaCC messages */
     private Properties jaccMessages;
     /** directory for JSON save */
     private Path jsonDirectory;
-    /** incompatibility tooltip */
-    private String compatibilityTooltip = "";
 
     private static final String NOT_FOUND = "NOT_FOUND";
 
@@ -119,6 +114,8 @@ public class JSONGenerator {
             this.graph.getVertices().add(vertex);
             id++;
         }
+        vertex = new Vertex(id, NOT_FOUND, archetypeIndex, text, attributes);
+        this.graph.getVertices().add(vertex);
     }
 
     /**
@@ -131,94 +128,101 @@ public class JSONGenerator {
         AttributeType attributeType = new AttributeType("Cause", AttributeDataType.STRING, "");
         this.graph.setEdgeArchetypes(new ArrayList<>(Collections.singleton(edgeArchetype)));
         this.graph.setAttributeTypes(new ArrayList<>(Collections.singleton(attributeType)));
-        SubedgeInfo subedgeInfo;
-        Set<ApiCmpStateResult> apiCmpResults;
-        Set<JClass> incompatibleClasses;
-        Edge edge;
+        SubEdgeInfo subedgeInfo;
         int id = 0;
 
         try {
-            this.compInfoJSON = "";
-            this.compInfoInnerJSON = "";
-            this.compInfoJSONNF = "";
-            String NFClassName = "";
-            String firstOrigin = "";
-            String secondOrigin = "";
-            String firstOriginNF = "";
-            String secondOriginNF = "";
-            List<String> NFClasses = new ArrayList<>();
             for (String origin : this.origins) {
-                incompatibleClasses = comparisonResult.getClassesImportingIncompatibilities(origin);
-                System.out.println("Processing origin " + origin);
-                for (JClass incompatibleClass : incompatibleClasses) {
-                    apiCmpResults = comparisonResult.getIncompatibleResults(incompatibleClass, origin);
-                    for (ApiCmpStateResult apiCmpResult : apiCmpResults) {
-                        if (apiCmpResult.getResult() != null && apiCmpResult.getResult().getSecondObject() != null) {
-                            List<CmpResultNode> children = apiCmpResult.getResult().getChildren();
+                JSONArray incompatibleInfoJSON = new JSONArray();
+                JSONArray notFoundInfoJSON = new JSONArray();
+                String firstOrigin = "";
+                String secondOrigin = "";
+                String firstOriginNF = "";
+                String secondOriginNF = "";
 
-                            this.level = 0;
-                            this.compInfoInnerJSON += "";
-                            this.findCompatibilityCause(children, incompatibleClass.getName(), apiCmpResult.getResult().getSecondObject().getName(), "");
-                            this.compInfoInnerJSON += ",";
-                            if (firstOrigin.equals("") && secondOrigin.equals("")) {
-                                firstOrigin = apiCmpResult.getResult().getFirstObject().getOrigin();
-                                secondOrigin = apiCmpResult.getResult().getSecondObject().getOrigin();
-                            }
-                        } else {
-                            if (apiCmpResult.getResult() != null) {
-                                NFClassName = apiCmpResult.getResult().getFirstObject().getName();
-                                if (!NFClassName.equals("") && !NFClasses.contains(NFClassName)) {
-                                    NFClasses.add(NFClassName);
-                                    this.compInfoJSONNF += "{theClass: \"" + NFClassName + "\", incomps: [ ";
-                                    this.compInfoJSONNF += "]},";
+                System.out.println("Processing origin " + origin);
+                Set<JClass> incompatibleClasses = comparisonResult.getClassesImportingIncompatibilities(origin);
+                for (JClass incompatibleClass : incompatibleClasses) {
+                    JSONArray incompatibilitiesJson = new JSONArray();
+                    JSONArray missingClassesJson = new JSONArray();
+
+                    // cyklus pres samotne nekompatibility
+                    Set<ApiCmpStateResult> apiCmpResults = comparisonResult.getIncompatibleResults(incompatibleClass, origin);
+                    for (ApiCmpStateResult apiCmpResult : apiCmpResults) {
+                        this.level = 0;
+                        CmpResult<JClass> cmpResult = apiCmpResult.getResult();
+                        if (cmpResult != null) {
+                            if (cmpResult.getSecondObject() != null) {
+                                List<CmpResultNode> children = cmpResult.getChildren();
+                                for (CmpResultNode child : children) {
+                                    incompatibilitiesJson.put(findIncompatibilityCause(child, ""));
+                                }
+
+                                if (firstOrigin.equals("") && secondOrigin.equals("")) {
+                                    firstOrigin = cmpResult.getFirstObject().getOrigin();
+                                    secondOrigin = cmpResult.getSecondObject().getOrigin();
+                                }
+
+                            } else {
+                                List<CmpResultNode> children = cmpResult.getChildren();
+                                for (CmpResultNode child : children) {
+                                    missingClassesJson.put(findIncompatibilityCause(child, ""));
                                 }
 
                                 if (firstOriginNF.equals("") && secondOriginNF.equals("")) {
-                                    firstOriginNF = apiCmpResult.getResult().getFirstObject().getOrigin();
+                                    firstOriginNF = cmpResult.getFirstObject().getOrigin();
                                     secondOriginNF = NOT_FOUND;
-                                    Vertex vertex = new Vertex(id, NOT_FOUND, 0, "", new ArrayList<>());
-                                    this.graph.getVertices().add(vertex);
                                 }
                             }
+                        } else {
+                            firstOriginNF = getOriginName(origin);
+                            secondOriginNF = NOT_FOUND;
+                            JSONObject descJson = new JSONObject();
+                            descJson.put("isIncompCause", true);
+                            descJson.put("incompName", "Class " + apiCmpResult.getImportClass().getName() + " not found!");
+                            descJson.put("difference", "DEL");
+                            descJson.put("level", 0);
+                            JSONObject causeJson = new JSONObject();
+                            causeJson.put("desc", descJson);
+                            causeJson.put("subtree", new JsonArray());
+                            missingClassesJson.put(causeJson);
                         }
-
                     }
 
-                    if (!this.compInfoInnerJSON.equals(",") && !this.compInfoInnerJSON.equals("")) {
-                        this.compInfoJSON += "{theClass: \"" + incompatibleClass.getName() + "\", incomps: [ ";
-                        this.compInfoJSON += this.compInfoInnerJSON;
-                        this.compInfoJSON += "]},";
-                    }
-                    this.compInfoInnerJSON = "";
+                    // incompatible class
+                    JSONObject incompatibleClassJson = new JSONObject();
+                    incompatibleClassJson.put("theClass", getOriginName(origin));
+                    incompatibleClassJson.put("causedBy", incompatibleClass.getName());
+                    incompatibleClassJson.put("incomps", incompatibilitiesJson);
 
+                    incompatibleInfoJSON.put(incompatibleClassJson);
+
+                    // not found class
+                    JSONObject notFoundClassJson = new JSONObject();
+                    notFoundClassJson.put("theClass", getOriginName(origin));
+                    notFoundClassJson.put("causedBy", incompatibleClass.getName());
+                    notFoundClassJson.put("incomps", missingClassesJson);
+
+                    notFoundInfoJSON.put(notFoundClassJson);
                 }
-                NFClasses.clear();
 
                 if (!firstOrigin.equals("")) {
-
-                    subedgeInfo = new SubedgeInfo(id, 0,  getCompatibilityInfo(new JSONArray("[" + this.compInfoJSON + "]")));
-                    edge = new Edge(id, getVertexId(firstOrigin), getVertexId(secondOrigin), "", new ArrayList<>(Collections.singleton(subedgeInfo)));
+                    subedgeInfo = new SubEdgeInfo(id, 0, "lollipop", new ArrayList<String[]>(),  incompatibleInfoJSON);
+                    Edge edge = new Edge(id, getVertexId(firstOrigin), getVertexId(secondOrigin), "", new ArrayList<>(Collections.singleton(subedgeInfo)));
                     this.graph.getEdges().add(edge);
                     id++;
                 }
 
                 if (!firstOriginNF.equals("")) {
-                    subedgeInfo = new SubedgeInfo(id, 0, getCompatibilityInfo(new JSONArray("[" + this.compInfoJSONNF+ "]")));
-                    edge = new Edge(id, getVertexId(secondOriginNF), getVertexId(firstOriginNF), "", new ArrayList<>(Collections.singleton(subedgeInfo)));
+                    subedgeInfo = new SubEdgeInfo(id, 0, "lollipop", new ArrayList<String[]>(), notFoundInfoJSON);
+                    Edge edge = new Edge(id, getVertexId(secondOriginNF), getVertexId(firstOriginNF), "", new ArrayList<>(Collections.singleton(subedgeInfo)));
                     this.graph.getEdges().add(edge);
                     id++;
                 }
-
-                firstOrigin = "";
-                secondOrigin = "";
-                firstOriginNF = "";
-                secondOriginNF = "";
-                this.compInfoJSON = "";
-                this.compInfoJSONNF = "";
-
             }
         } catch (IllegalStateException e) {
             System.err.println("Error while creating edges!");
+            e.printStackTrace();
             throw new IllegalStateException(e);
         }
         System.out.println("Creating edges done!");
@@ -240,84 +244,188 @@ public class JSONGenerator {
     }
 
     /**
+     * Returns origin name.
+     *
+     * @param origin origin
+     * @return name
+     */
+    private String getOriginName(String origin) {
+        for (int i = origin.length()-1; i >= 0; i--) {
+            if (origin.charAt(i) == '\\') {
+                return origin.substring(i+1);
+            }
+        }
+        return "Invalid Name";
+    }
+
+
+    /**
      * Finds incompatibility cause.
      *
-     * @param children child nodes
-     * @param className class name
-     * @param jarName jar name
-     * @param corrStrategy strategy
+     * @param cmpResultNode resultNode
+     * @param corrStrategy correction strategy
+     * @return incompatibility cause
      */
-    public void findCompatibilityCause(List<CmpResultNode> children, String className, String jarName, String corrStrategy) {
-        for (CmpResultNode child : children) {
-            Object o = child.getResult().getFirstObject();
-            this.compInfoInnerJSON += "{desc: {level: \"" + String.valueOf(this.level);
+    public JSONObject findIncompatibilityCause(CmpResultNode cmpResultNode, String corrStrategy) {
+        Object o = cmpResultNode.getResult().getFirstObject();
 
-            if (child.isIncompatibilityCause()) {
+        // cause description
+        JSONObject descriptionJson = new JSONObject();
+        descriptionJson.put("level", this.level);
 
-                if (o instanceof HasName) {
-                    this.compInfoInnerJSON += "\", name: \"" + this.jaccMessages.getProperty(child.getContentCode()) + ": " + ((HasName) o).getName();
-
-                    this.compInfoInnerJSON
-                            += (!child.getResult().getInherentDiff().name().equals("DEL") ? "\", objectNameFirst: \"" + ((HasName) o).getName() : "")
-                            + (!child.getResult().getInherentDiff().name().equals("DEL") ? "\", objectNameSecond: \"" + ((HasName) child.getResult().getSecondObject()).getName() : "");
-                } else {
-                    if (o instanceof JMethod) {
-                        this.compInfoInnerJSON += "\", name: \"M " + getCompleteMethodName(o);
-                    } else {
-                        this.compInfoInnerJSON += "\", name: \"" + this.jaccMessages.getProperty(child.getContentCode());
-                    }
-
-                    this.compInfoInnerJSON
-                            += (!child.getResult().getInherentDiff().name().equals("DEL") ? "\", objectNameFirst: \"" + o.toString() : "")
-                            + (!child.getResult().getInherentDiff().name().equals("DEL") ? "\", objectNameSecond: \"" + child.getResult().getSecondObject().toString() : "");
-
-                }
-
-                this.compInfoInnerJSON += "\", className: \"" + className;
-                this.compInfoInnerJSON += "\", jarName: \"" + jarName;
-
-                String incompName = this.getIncompatibilityName(child, corrStrategy);
-                if (incompName.equals("")) {
-                    this.compInfoInnerJSON += "\", incompName: \"Incompatible " + this.jaccMessages.getProperty(child.getContentCode()) + " -> " + corrStrategy; //child.getResult().getStrategy().name();
-                } else {
-                    this.compInfoInnerJSON += "\", incompName: \"" + incompName + (child.getResult().getInherentDiff().name().equals("DEL") ? " is missing -> " + child.getResult().getStrategy().name() : "");
-                }
-
-                this.compInfoInnerJSON += "\", isIncompCause: \"" + String.valueOf(child.isIncompatibilityCause())
-                        + "\", strategy: \"" + child.getResult().getStrategy().name()
-                        + "\", difference: \"" + child.getResult().getInherentDiff().name() + "\"}, subtree:";
-
-            } else {
-                if (o instanceof JMethod) {
-                    this.compInfoInnerJSON += "\", name: \"M " + getCompleteMethodName(o);
-                } else if (o instanceof JField) {
-                    this.compInfoInnerJSON += "\", name: \"F " + getShortName2(o.toString());
-
-                } else if (o instanceof HasName) {
-                    this.compInfoInnerJSON += "\", name: \"" + this.jaccMessages.getProperty(child.getContentCode()) + ": " + ((HasName) o).getName();
-                } else {
-                    this.compInfoInnerJSON += "\", name: \"" + this.jaccMessages.getProperty(child.getContentCode());
-                }
-
-                this.compInfoInnerJSON += "\", isIncompCause: \"" + String.valueOf(child.isIncompatibilityCause()) + "\"}, subtree: ";
-
-            }
-            if (!child.getResult().childrenCompatible()) {
-                String strategy = "";
-                if (this.level == 1) {
-                    strategy = child.getResult().getStrategy().name();
-                }
-                this.level++;
-                this.compInfoInnerJSON += "[";
-                this.findCompatibilityCause(child.getResult().getChildren(), className, jarName, strategy);
-                this.level--;
-                this.compInfoInnerJSON += "],";
-            } else {
-                this.compInfoInnerJSON += "[],";
-            }
-            this.compInfoInnerJSON += "},";
+        if (o instanceof JMethod) {
+            descriptionJson.put("name", "M " + getMethodDeclaration(o));
+        } else if (o instanceof JField) {
+            descriptionJson.put("name", "F " + getFieldDeclaration(o));
+        } else if (o instanceof HasName) {
+            descriptionJson.put("name", this.jaccMessages.getProperty(cmpResultNode.getContentCode()) + ": " + ((HasName) o).getName());
+        } else {
+            descriptionJson.put("name", this.jaccMessages.getProperty(cmpResultNode.getContentCode()));
         }
 
+        descriptionJson.put("contentCode", cmpResultNode.getContentCode());
+        descriptionJson.put("propertyName", this.jaccMessages.getProperty(cmpResultNode.getContentCode()));
+        descriptionJson.put("isIncompCause", cmpResultNode.isIncompatibilityCause());
+
+        if (o instanceof JPackage) {
+            descriptionJson.put("type", "package");
+            descriptionJson.put("details", getPackageDetails((JPackage) o));
+        } else if (o instanceof JClass) {
+            descriptionJson.put("type", "class");
+            descriptionJson.put("details", getClassDetails((JClass) o));
+        } else if (o instanceof JMethod) {
+            descriptionJson.put("type", "method");
+            descriptionJson.put("details", getMethodDetails((JMethod) o));
+        } else if (o instanceof JField) {
+            descriptionJson.put("type", "field");
+            descriptionJson.put("details", getFieldDetails((JField) o));
+        }
+
+        // incompatibility details
+        if (cmpResultNode.isIncompatibilityCause()) {
+            if (!cmpResultNode.getResult().getInherentDiff().name().equals("DEL")) {
+                if (o instanceof HasName) {
+                    descriptionJson.put("objectNameFirst", ((HasName) o).getName());
+                    descriptionJson.put("objectNameSecond", ((HasName) cmpResultNode.getResult().getSecondObject()).getName());
+                } else {
+                    descriptionJson.put("objectNameFirst", o.toString());
+                    descriptionJson.put("objectNameSecond", cmpResultNode.getResult().getSecondObject().toString());
+                }
+            }
+
+            String incompName = this.getIncompatibilityName(cmpResultNode, corrStrategy);
+            if (incompName.equals("")) {
+                descriptionJson.put("incompName", "Incompatible " + this.jaccMessages.getProperty(cmpResultNode.getContentCode()) + " -> " + corrStrategy); //child.getResult().getStrategy().name();
+            } else {
+                descriptionJson.put("incompName", incompName + (cmpResultNode.getResult().getInherentDiff().name().equals("DEL") ? " is missing -> " + cmpResultNode.getResult().getStrategy().name() : ""));
+            }
+
+            descriptionJson.put("strategy", cmpResultNode.getResult().getStrategy().name());
+            descriptionJson.put("difference", cmpResultNode.getResult().getInherentDiff().name());
+        }
+
+        // subtree
+        JSONArray subtreeJson = new JSONArray();
+        if (!cmpResultNode.getResult().childrenCompatible()) {
+            this.level++;
+
+            List<CmpResultNode> children = cmpResultNode.getResult().getChildren();
+            for (CmpResultNode child : children) {
+                CorrectionStrategy strategy = this.level == 1 ? cmpResultNode.getResult().getStrategy() : child.getResult().getStrategy();
+                subtreeJson.put(findIncompatibilityCause(child, strategy.name()));
+            }
+
+            this.level--;
+        }
+
+        JSONObject causeJson = new JSONObject();
+        causeJson.put("desc", descriptionJson);
+        causeJson.put("subtree", subtreeJson);
+
+        return causeJson;
+    }
+
+    /**
+     * Returns package details.
+     *
+     * @param pacckage package
+     * @return details
+     */
+    private JSONObject getPackageDetails(JPackage pacckage) {
+        JSONObject detailsJson = new JSONObject();
+        detailsJson.put("name", pacckage.getName());
+
+        return detailsJson;
+    }
+
+    /**
+     * Returns class details.
+     *
+     * @param classs class
+     * @return details
+     */
+    private JSONObject getClassDetails(JClass classs) {
+        JSONObject detailsJson = new JSONObject();
+        detailsJson.put("name", classs.getShortName());
+        detailsJson.put("package", classs.getPackage().getName());
+        detailsJson.put("enum", classs.isEnum());
+        detailsJson.put("interface", classs.isInterface());
+        detailsJson.put("annotation", classs.isAnnotation());
+        detailsJson.put("abstract", classs.getModifiers().isAbstract());
+        detailsJson.put("final", classs.getModifiers().isFinal());
+        detailsJson.put("static", classs.getModifiers().isStatic());
+
+        return detailsJson;
+    }
+
+    /**
+     * Returns method details.
+     *
+     * @param method method
+     * @return details
+     */
+    private JSONObject getMethodDetails(JMethod method) {
+        JSONObject detailsJson = new JSONObject();
+        detailsJson.put("name", method.getName());
+        detailsJson.put("returnType", method.getReturnType().getName());
+        detailsJson.put("constructor", method.isConstructor());
+
+        List<JType> exceptionTypes = method.getExceptionTypes();
+        JSONArray exceptionTypeNames = new JSONArray();
+        for (JType type : exceptionTypes) {
+            exceptionTypeNames.put(type.getName());
+        }
+        detailsJson.put("exceptions", exceptionTypeNames);
+        List<JType> parameterTypes = method.getParameterTypes();
+        JSONArray parameterTypeNames = new JSONArray();
+        for (JType type : parameterTypes) {
+            parameterTypeNames.put(type.getName());
+        }
+        detailsJson.put("paramTypes", parameterTypeNames);
+        detailsJson.put("abstract", method.getModifiers().isAbstract());
+        detailsJson.put("final", method.getModifiers().isFinal());
+        detailsJson.put("static", method.getModifiers().isStatic());
+        detailsJson.put("synchronized", method.getModifiers().isSynchronized());
+
+        return detailsJson;
+    }
+
+    /**
+     * Returns field details.
+     *
+     * @param field field
+     * @return details
+     */
+    private JSONObject getFieldDetails(JField field) {
+        JSONObject detailsJson = new JSONObject();
+        detailsJson.put("name", field.getName());
+        detailsJson.put("type", field.getType().getName());
+        detailsJson.put("initialValue", field.getInitialValue());
+        detailsJson.put("abstract", field.getModifiers().isAbstract());
+        detailsJson.put("final", field.getModifiers().isFinal());
+        detailsJson.put("static", field.getModifiers().isStatic());
+
+        return detailsJson;
     }
 
     /**
@@ -331,41 +439,6 @@ public class JSONGenerator {
     }
 
     /**
-     * Returns short name.
-     *
-     * @param longName long name
-     * @return short name
-     */
-    private String getShortName2(String longName) {
-        return longName.substring(longName.lastIndexOf(':') + 1);
-    }
-
-    /**
-     * Returns complete method name.
-     *
-     * @param o object
-     * @return short name
-     */
-    private String getCompleteMethodName(Object o) {
-        String methodName = "";
-        try {
-            methodName += getShortName(((JMethod) o).getReturnType().getName());
-            methodName += " " + ((JMethod) o).getName();
-            methodName += " (";
-            for (JType type : ((JMethod) o).getParameterTypes()) {
-                methodName += getShortName(type.getName()) + ", ";
-            }
-            methodName = methodName.replaceAll(", $", "");
-            methodName += ")";
-        } catch (ClassCastException e) {
-            System.out.println("Object is not method!");
-            methodName = "";
-        }
-
-        return methodName;
-    }
-
-    /**
      * Returns incompatibility name.
      *
      * @param child child node
@@ -375,101 +448,77 @@ public class JSONGenerator {
     private String getIncompatibilityName(CmpResultNode child, String corrStrategy) {
         Object o = child.getResult().getFirstObject();
 
-        String incompName = "";
+        String incompName;
         switch (child.getContentCode()) {
+            case "cmp.child.class":
+                if (o instanceof HasName) {
+                    incompName = "Class " + ((HasName) o).getName();
+                } else {
+                    incompName = "Class " + o.toString();
+                }
+                break;
             case "cmp.child.method.return.type":
                 incompName = this.jaccMessages.getProperty(child.getContentCode()) + " different -> " + corrStrategy;
                 break;
-            case "cmp.child.method.param.type": {
+            case "cmp.child.method.param.type":
                 if (o instanceof HasName) {
                     incompName = "Parameter " + getShortName(((HasName) o).getName()) + " different -> " + corrStrategy;
                 } else {
                     incompName = "Parameter " + getShortName(o.toString()) + " different -> " + corrStrategy;
                 }
-            }
-            break;
+                break;
             case "cmp.child.method.invocation":
                 incompName = "Invoke Virtual" + " -> " + child.getResult().getStrategy().name();
-                ;
                 break;
             case "cmp.child.method":
-                incompName = "M " + getCompleteMethodName(o);
+                incompName = "<span class='entity'>M</span> " + getMethodDeclaration(o);
                 break;
             case "cmp.child.constructor":
-                incompName = "C " + getCompleteMethodName(o);
+                incompName = "<span class='entity'>C</span> " + getMethodDeclaration(o);
                 break;
             case "cmp.child.field":
-                incompName = "F " + getCompleteMethodName(o);
+                incompName = "<span class='entity'>F</span> " + getFieldDeclaration(o);
                 break;
             case "cmp.child.modifier":
-                incompName = "P " + o.toString() + " -> " + corrStrategy;
+                incompName = "<span class='entity'>P</span> " + o.toString() + " -> " + corrStrategy;
                 break;
             default:
                 incompName = "";
                 break;
         }
-
         return incompName;
     }
 
     /**
-     * Return incompatibility info for detail of edge.
+     * Returns method declaration.
+     *
+     * @param o method
+     * @return method declaration
      */
-    private List<String[]> getCompatibilityInfo(JSONArray data) {
-        List<String[]> incompatibilities = new ArrayList<>();
-        compatibilityTooltip = "";
-
-        for (int i = 0; i < data.length(); i++) {
-            JSONObject problem = data.getJSONObject(i);
-            String Class = problem.getString("theClass");
-            compatibilityTooltip += "Class: " + Class + " -> ";
-            JSONArray incomps = problem.getJSONArray("incomps");
-            for (int j = 0; j < incomps.length(); j++) {
-                JSONObject jsonObject = null;
-                try {
-                    jsonObject = incomps.getJSONObject(j);
-                } catch (JSONException e) {
-                    //Not JSON object
-                }
-                if (jsonObject != null) {
-                    parseCompatibilityInfo(jsonObject);
-                }
-            }
-            incompatibilities.add(new String[]{"Cause", compatibilityTooltip});
-            compatibilityTooltip = "";
+    private String getMethodDeclaration(Object o) {
+        String methodName = "";
+        methodName += getShortName(((JMethod) o).getReturnType().getName());
+        methodName += " " + ((JMethod) o).getName();
+        methodName += "(";
+        for (JType type : ((JMethod) o).getParameterTypes()) {
+            methodName += getShortName(type.getName()) + ", ";
         }
-
-        return incompatibilities;
+        methodName = methodName.replaceAll(", $", "");
+        methodName += ")";
+        return methodName;
     }
 
     /**
-     * Traverses incompatibility JSON object and creates incompatibility info.
+     * Returns field declaration.
+     *
+     * @param o field
+     * @return field declaration
      */
-    private void parseCompatibilityInfo(JSONObject data) {
-        JSONObject desc = data.getJSONObject("desc");
-        JSONArray subtree = data.getJSONArray("subtree");
-
-        if(desc.getString("isIncompCause") == "true") {
-            compatibilityTooltip += "Class = " + desc.getString("incompName") + " -> ";
-            if (desc.getString("difference") != "DEL") {
-                compatibilityTooltip += "Difference: ";
-                compatibilityTooltip += desc.getString("objectNameSecond") + " -> " +  desc.getString("objectNameFirst") + " ";
-            }
-        } else {
-            if (desc.getInt("level") > 0) {
-                compatibilityTooltip +=  desc.getString("name") + " ";
-            }
-        }
-
-        if (subtree.length() > 0) {
-            for (int i = 0; i < subtree.length(); i++) {
-                JSONObject sub = subtree.getJSONObject(i);
-                if (sub.getJSONArray("subtree").length() > 0 || sub.getJSONObject("desc").getString("isIncompCause").equals("true")) {
-                    parseCompatibilityInfo(sub);
-                }
-            }
-        }
+    private String getFieldDeclaration(Object o) {
+        String fieldDeclaration = "";
+        fieldDeclaration += getShortName(((JField) o).getType().getName());
+        fieldDeclaration += " " + ((JField) o).getName();
+        return fieldDeclaration;
     }
-
 
 }

@@ -31,6 +31,7 @@ public class MavenService {
         InvocationRequest request = new DefaultInvocationRequest();
         request.setPomFile( new File( projectPath + File.separator + "pom.xml"));
         request.setGoals( Arrays.asList("package -DskipTests"));
+        request.setTimeoutInSeconds(3600);
         Invoker invoker = new DefaultInvoker();
         invoker.setMavenHome(new File(System.getenv("M2_HOME")));
         invoker.execute(request);
@@ -45,6 +46,7 @@ public class MavenService {
         InvocationRequest request = new DefaultInvocationRequest();
         request.setPomFile( new File( projectPath + File.separator + "pom.xml"));
         request.setGoals( Arrays.asList( "dependency:copy-dependencies") );
+        request.setTimeoutInSeconds(3600);
         Invoker invoker = new DefaultInvoker();
         invoker.setMavenHome(new File(System.getenv("M2_HOME")));
         invoker.execute(request);
