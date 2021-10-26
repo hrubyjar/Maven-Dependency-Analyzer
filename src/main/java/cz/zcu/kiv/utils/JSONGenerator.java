@@ -251,7 +251,7 @@ public class JSONGenerator {
      */
     private String getOriginName(String origin) {
         for (int i = origin.length()-1; i >= 0; i--) {
-            if (origin.charAt(i) == '\\') {
+            if (origin.charAt(i) == File.separatorChar) {
                 return origin.substring(i+1);
             }
         }
